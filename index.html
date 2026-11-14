@@ -147,14 +147,27 @@
 #journalPanel .ko-journal-table{min-width:700px}
 .ko-right .scroller table.ko-journal-table{min-width:700px}
 
+
+.live-setup{margin:12px 0;padding:12px 14px;border:1px solid #3b7287;border-radius:9px;background:#102635}
+.live-setup summary{cursor:pointer;color:#a9dcff;font-weight:700}
+.live-setup #liveSignupForm{margin-top:12px}
+.live-setup.hidden{display:none!important}
 </style>
 </head>
 <body>
 <header><h1>UNITY ARENA JOURNAL</h1><p style="font-size:0.8rem;color:#9edaff">LIVEVERSJON 3.5 · FELLES DATABASE · NYESTE ØVERST</p><p>Hendelser, sambandsmeldinger og arrangementsarkiv</p></header>
 <main class="wrap">
-<div id="notice" role="status" aria-live="polite"></div><section class="panel" id="loginPanel"><h2>KO Live – innlogging <span id="connectionBadge">Ikke tilkoblet</span></h2>
+<div id="notice" role="status" aria-live="polite"></div><section class="panel" id="loginPanel"><h2>Unity Arena Journal LIVE – innlogging <span id="connectionBadge">Ikke tilkoblet</span></h2>
 <p class="muted">Kun autoriserte operatører. Journalen lagres i Supabase. Bruk testdata inntil tilgangsstyring, personvern og rutiner for reelle hendelser er godkjent.</p>
 <div class="row" id="loginFields"><div class="field"><label for="loginEmail">E-post eller gjestebrukernavn</label><input type="text" id="loginEmail" autocomplete="username" placeholder="E-post / gjestebrukernavn"></div><div class="field"><label for="loginPassword">Passord</label><input type="password" id="loginPassword" autocomplete="current-password" placeholder="Passord"></div><button class="primary" id="loginButton">Logg inn</button></div>
+<details id="liveSetupDetails" class="live-setup"><summary>Første gang i LIVE? Aktiver KO-lederkonto</summary>
+<p class="muted">LIVE har en egen database og krever en egen konto. Bruk samme e-postadresse som KO-lederkontoen i TEST og velg et nytt passord. Du må bekrefte e-posten før du kan logge inn. Andre adresser får ingen KO-tilgang.</p>
+<form id="liveSignupForm" class="row">
+<div class="field"><label for="liveSignupEmail">E-postadresse</label><input id="liveSignupEmail" type="email" autocomplete="email" required></div>
+<div class="field"><label for="liveSignupPassword">Nytt LIVE-passord (minst 12 tegn)</label><input id="liveSignupPassword" type="password" minlength="12" autocomplete="new-password" required></div>
+<button class="primary" type="submit">Aktiver LIVE-konto</button></form>
+<p id="liveSignupResult" role="status" class="muted"></p>
+</details>
 <div class="row hidden" id="signedInPanel"><span id="userIdentity"></span><button id="openGuestAdmin" type="button" class="primary hidden">Administrer brukere</button><button id="logoutButton">Logg ut</button><button id="refreshButton">Oppdater nå</button></div></section>
 <div id="liveBanner" role="status">Kobler til Supabase …</div>
 <section class="panel hidden no-print" id="guestAdminPanel" aria-label="Administrer gjestebrukere">
@@ -198,8 +211,8 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
 (()=>{'use strict';
-const SUPABASE_URL='https://gpsxktpfkzglcsplbjwg.supabase.co';
-const SUPABASE_PUBLISHABLE_KEY='sb_publishable_I9iz1q7MAlQMJItU_x6HrQ_tPr4qt3d';
+const SUPABASE_URL='https://wchsrweqrmloppyvqlhp.supabase.co';
+const SUPABASE_PUBLISHABLE_KEY='sb_publishable_LMQyeoqD2JxA6dt1oR_vvQ_lAWnYxCM';
 const TASK_STATES=['Åpen','Under arbeid','Etterkontroll','Fullført'];
 const categories=['Forespørsel / oppgave','Samband','Orden og sikkerhet','Sanitet','Brann og evakuering','Show og produksjon','Publikum og adgang','Drift','Annet'];
 const TYPE_GROUPS={
@@ -234,6 +247,7 @@ function typesOf(row){return Array.isArray(row.incident_types)?row.incident_type
 function toEntry(r){return {id:r.id,time:r.created_at,authorLabel:r.author_label||'?',from:r.sender||'',to:r.receiver||'',location:r.location||'',note:r.description||'',category:r.category||'Samband',priority:r.priority||'Lav',types:typesOf(r),taskStatus:r.task_status==='Kun journalmelding'?'':(r.task_status||''),completedAt:null}}
 function toEvent(r){return {id:r.id,name:r.name,date:r.event_date,created:r.created_at,closed:r.status==='archived',entries:[]}}
 function showAuth(){let on=!!currentUser;
+$('liveSetupDetails').classList.toggle('hidden',on);
 $('openGuestAdmin').classList.toggle('hidden',!on||currentRole!=='leader');
 if(!on||currentRole!=='leader'){$('guestAdminPanel').classList.add('hidden');}$('loginFields').classList.toggle('hidden',on);$('signedInPanel').classList.toggle('hidden',!on);$('userIdentity').textContent=on?`${currentRole==='guest'?currentUser.email.split('@')[0]:currentUser.email} · ${currentRole==='leader'?'KO-leder':currentRole==='guest'?'Gjest':'Operatør'}`:'';$('connectionBadge').textContent=on?'Tilkoblet':'Logg inn';$('createEvent').disabled=!on||currentRole!=='leader';$('eventName').disabled=!on||currentRole!=='leader';$('eventDate').disabled=!on||currentRole!=='leader';render()}
 function rowsFiltered(){let e=active();if(!e)return [];let c=$('filterCategory').value,p=$('filterPriority').value,q=$('search').value.toLowerCase().trim();return e.entries.slice().sort((a,b)=>new Date(b.time)-new Date(a.time)||b.id.localeCompare(a.id)).filter(r=>(!c||r.category===c)&&(!p||r.priority===p)&&(!q||[r.from,r.to,r.category,r.priority,r.location,r.note,fmt(r.time)].join(' ').toLowerCase().includes(q)))}
@@ -295,6 +309,18 @@ async function initSession(){if(!db){status('Supabase-biblioteket kunne ikke las
 async function setSession(session){currentUser=session?.user||null;currentRole=null;state={events:[],activeId:null};if(!currentUser){if(channel){await db.removeChannel(channel);channel=null}showAuth();status('Logg inn med en godkjent operatørkonto.');return}let role=await db.from('ko_operators').select('role').eq('user_id',currentUser.id).maybeSingle();if(role.error||!role.data){await db.auth.signOut();currentUser=null;showAuth();status('Brukeren har ikke tilgang som KO-operatør. Kontakt KO-leder.','error');return}currentRole=role.data.role;showAuth();await fetchAll();await subscribe()}
 $('loginButton').addEventListener('click',async()=>{let email=$('loginEmail').value.trim(),password=$('loginPassword').value;
 if(email&&!email.includes('@'))email=email.toLowerCase()+'@guest.unityarena.example';if(!email||!password)return notice('Skriv inn e-post og passord.');status('Logger inn …');let {data,error}=await db.auth.signInWithPassword({email,password});$('loginPassword').value='';if(error)return status('Innlogging feilet: '+errorMessage(error),'error');await setSession(data.session)});
+$('liveSignupForm').addEventListener('submit',async ev=>{
+ ev.preventDefault();
+ const email=$('liveSignupEmail').value.trim().toLowerCase(),password=$('liveSignupPassword').value;
+ if(!email||password.length<12)return;
+ $('liveSignupResult').textContent='Sender e-postbekreftelse …';
+ try{
+   const {error}=await db.auth.signUp({email,password,options:{emailRedirectTo:location.origin+location.pathname}});
+   $('liveSignupPassword').value='';
+   if(error)throw error;
+   $('liveSignupResult').textContent='Hvis adressen er registrerbar, mottar du en bekreftelses-e-post. Klikk lenken, og logg deretter inn her. Bare forhåndsgodkjent KO-lederadresse får ledertilgang.';
+ }catch(err){$('liveSignupPassword').value='';$('liveSignupResult').textContent='Kunne ikke sende bekreftelse: '+errorMessage(err)}
+});
 $('loginPassword').addEventListener('keydown',e=>{if(e.key==='Enter')$('loginButton').click()});
 $('logoutButton').addEventListener('click',async()=>{await db.auth.signOut();await setSession(null)});
 $('refreshButton').addEventListener('click',fetchAll);
